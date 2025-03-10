@@ -3,17 +3,165 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_imxrt::hashcrypt::{hasher, Hashcrypt};
+use embassy_imxrt::hashcrypt::{hasher, Async as hashAsync, Hashcrypt};
+use embassy_imxrt::uart::{Async, Uart};
+use embassy_imxrt::{bind_interrupts, peripherals, uart};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
+bind_interrupts!(struct Irqs {
+    FLEXCOMM4 => uart::InterruptHandler<peripherals::FLEXCOMM4>;
+});
+
+const BUFLEN: usize = 32;
+
+#[embassy_executor::task]
+async fn usart4_task(mut uart: Uart<'static, Async>, mut hashcrypt: Hashcrypt<'static, hashAsync>) {
+    info!("RX Task");
+
+    loop {
+        let mut rx_buf = [0; BUFLEN + 1];
+        uart.read(&mut rx_buf).await.unwrap();
+
+        info!("Rx buf {:02X}", rx_buf);
+        Timer::after_millis(10).await;
+
+        let key = b"dcbadcbadcbadcbf";
+
+        let mut inputdata = [0u8; BUFLEN];
+        let mut aeskey = [0u8; 16];
+        let mut i = 0;
+
+        for byte in key.iter().rev() {
+            aeskey[i] = *byte;
+            i += 1;
+        }
+        i = 0;
+        for byte in rx_buf[1..].iter().rev() {
+            inputdata[i] = *byte;
+            i += 1;
+        }
+        info!("inputdata{:02X}", inputdata);
+        if rx_buf[0] == b'e' {
+            let mut encrypteddata = [0u8; BUFLEN];
+            //let bytes = b"hello12345";
+
+            hashcrypt
+                .new_aesencrypt()
+                .encrypt(&inputdata, &aeskey, &mut encrypteddata)
+                .await;
+            info!("Encrypted data {:02X}", encrypteddata);
+
+            let mut i = 0;
+            for byte in encrypteddata.iter().rev() {
+                inputdata[i] = *byte;
+                i += 1;
+            }
+
+            /*
+            let mut buf = [0u8; 33];
+            buf[..32].clone_from_slice(&encrypteddata);
+            buf[32] = 0x0a;
+            */
+            info!("Sending buffer {:02X}", encrypteddata);
+            uart.write(&encrypteddata).await.unwrap();
+        } else if rx_buf[0] == b'd' {
+            let mut decrypteddata = [0u8; BUFLEN];
+            let mut decdata = [0u8; BUFLEN];
+            /*
+            let mut i = 0;
+            for byte in inputdata.iter().rev() {
+                decdata[i] = *byte;
+                i += 1;
+            }
+            */
+
+            hashcrypt
+                .new_aesdecrypt()
+                .encrypt(&inputdata, &aeskey, &mut decrypteddata)
+                .await;
+
+            let s = core::str::from_utf8(&decrypteddata).unwrap();
+            info!("Decrypted data {:02X}", decrypteddata);
+            info!("Decrypted data {}", s);
+            /*
+            let mut buf = [0u8; 33];
+            buf[..32].clone_from_slice(&decrypteddata);
+            buf[32] = 0x0a;
+            */
+            info!("Sending buffer {:02X}", decrypteddata);
+            uart.write(&decrypteddata).await.unwrap();
+        }
+    }
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_imxrt::init(Default::default());
-    let mut hash = [0u8; hasher::HASH_LEN];
+    let mut _hash = [0u8; hasher::HASH_LEN];
 
     info!("Initializing Hashcrypt");
-    let mut hashcrypt = Hashcrypt::new_async(p.HASHCRYPT, p.DMA0_CH30);
+    let hashcrypt = Hashcrypt::new_async(p.HASHCRYPT, p.DMA0_CH30);
 
+    let usart4 = Uart::new_with_rtscts(
+        p.FLEXCOMM4,
+        p.PIO0_29,
+        p.PIO0_30,
+        p.PIO1_0,
+        p.PIO0_31,
+        Irqs,
+        p.DMA0_CH9,
+        p.DMA0_CH8,
+        Default::default(),
+    )
+    .unwrap();
+    spawner.must_spawn(usart4_task(usart4, hashcrypt));
+
+    /*
+    let mut encrypteddata = [0u8; 16];
+    let mut decrypteddata = [0u8; 16];
+
+    let bytes = b"hello12345";
+
+    let key = b"dcbadcbadcbadcbf";
+
+    let mut inputdata = [0u8; 16];
+    let mut aeskey = [0u8; 16];
+    let mut i = 0;
+
+    for byte in key.iter().rev() {
+        aeskey[i] = *byte;
+        i += 1;
+    }
+    i = 0;
+    for byte in bytes.iter().rev() {
+        inputdata[i] = *byte;
+        i += 1;
+    }
+    info!("inputdata{:02X}", inputdata);
+    hashcrypt
+        .new_aesencrypt()
+        .encrypt(&inputdata, &aeskey, &mut encrypteddata)
+        .await;
+    info!("Encrypted data {:02X}", encrypteddata);
+
+    let mut i = 0;
+    for byte in encrypteddata.iter().rev() {
+        inputdata[i] = *byte;
+        i += 1;
+    }
+
+    hashcrypt
+        .new_aesdecrypt()
+        .encrypt(&inputdata, &aeskey, &mut decrypteddata)
+        .await;
+
+    let s = core::str::from_utf8(&decrypteddata).unwrap();
+
+    info!("Decrypted data {}", s);
+    */
+
+    /*
     info!("Starting hashes");
     // Data that fits into a single block
     info!("Single hash block");
@@ -74,4 +222,5 @@ async fn main(_spawner: Spawner) {
         ]
     );
     trace!("Hashes complete");
+    */
 }

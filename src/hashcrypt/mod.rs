@@ -46,13 +46,16 @@ pub struct Hashcrypt<'d, M: Mode> {
 #[non_exhaustive]
 enum Algorithm {
     /// SHA256
-    SHA256,
+    //SHA256,
+    //AES
+    AES,
 }
 
 impl From<Algorithm> for u8 {
     fn from(value: Algorithm) -> Self {
         match value {
-            Algorithm::SHA256 => 0x2,
+            //Algorithm::SHA256 => 0x2,
+            Algorithm::AES => 0x4,
         }
     }
 }
@@ -73,13 +76,59 @@ impl<'d, M: Mode> Hashcrypt<'d, M> {
     }
 
     // Safety: unsafe for writing algorithm type to register
-    fn start_algorithm(&mut self, algorithm: Algorithm, dma: bool) {
-        self.hashcrypt.ctrl().write(|w| w.mode().disabled().new_hash().start());
+    fn start_aes(&mut self, _algorithm: Algorithm, decrypt: bool, _dma: bool) {
+        //self.hashcrypt.ctrl().write(|w| w.mode().aes());
+
+        /*
         self.hashcrypt.ctrl().write(|w| {
-            unsafe { w.mode().bits(algorithm.into()) }.new_hash().start();
+            unsafe { w.mode().bits(algorithm.into()) };
             if dma {
                 w.dma_i().set_bit();
+                w.dma_o().set_bit();
             }
+            w
+        });
+        */
+
+        if decrypt == false {
+            self.hashcrypt.cryptcfg().modify(|_, w| {
+                w.aesmode()
+                    .ecb()
+                    .aesdecrypt()
+                    .encrypt()
+                    .aessecret()
+                    .normal_way()
+                    .aeskeysz()
+                    .bits_128()
+            });
+        } else {
+            info!("decrypt");
+            self.hashcrypt.cryptcfg().modify(|_, w| {
+                w.aesmode()
+                    .ecb()
+                    .aesdecrypt()
+                    .decrypt()
+                    .aessecret()
+                    .normal_way()
+                    .aeskeysz()
+                    .bits_128()
+            });
+        }
+
+        self.hashcrypt
+            .ctrl()
+            .modify(|_, w| w.new_hash().start().mode().disabled());
+        //self.hashcrypt.ctrl().modify(|_, w| w.new_hash().start().mode().aes());
+        //info!("Read mode {:?}", self.hashcrypt.ctrl().read().mode().is_aes());
+
+        self.hashcrypt.ctrl().modify(|_, w| {
+            w.new_hash().start().mode().aes();
+            /*
+            if dma {
+                w.dma_i().set_bit();
+                w.dma_o().set_bit();
+            }
+            */
             w
         });
     }
@@ -93,7 +142,19 @@ impl<'d> Hashcrypt<'d, Blocking> {
 
     /// Start a new SHA256 hash
     pub fn new_sha256<'a>(&'a mut self) -> Hasher<'d, 'a, Blocking> {
-        self.start_algorithm(Algorithm::SHA256, false);
+        //self.start_algorithm(Algorithm::SHA256, false);
+        Hasher::new_blocking(self)
+    }
+
+    /// AES encrypt
+    pub fn new_aesencrypt<'a>(&'a mut self) -> Hasher<'d, 'a, Blocking> {
+        self.start_aes(Algorithm::AES, false, false);
+        Hasher::new_blocking(self)
+    }
+
+    /// AES decrypt
+    pub fn new_aesdecrypt<'a>(&'a mut self) -> Hasher<'d, 'a, Blocking> {
+        self.start_aes(Algorithm::AES, true, false);
         Hasher::new_blocking(self)
     }
 }
@@ -107,9 +168,21 @@ impl<'d> Hashcrypt<'d, Async> {
         Self::new_inner(peripheral, Some(dma::Dma::reserve_channel(dma_ch)))
     }
 
+    /// AES encrypt
+    pub fn new_aesencrypt<'a>(&'a mut self) -> Hasher<'d, 'a, Async> {
+        self.start_aes(Algorithm::AES, false, true);
+        Hasher::new_async(self)
+    }
+
+    /// AES decrypt
+    pub fn new_aesdecrypt<'a>(&'a mut self) -> Hasher<'d, 'a, Async> {
+        self.start_aes(Algorithm::AES, true, true);
+        Hasher::new_async(self)
+    }
+
     /// Start a new SHA256 hash
     pub fn new_sha256<'a>(&'a mut self) -> Hasher<'d, 'a, Async> {
-        self.start_algorithm(Algorithm::SHA256, true);
+        //self.start_algorithm(Algorithm::SHA256, true);
         Hasher::new_async(self)
     }
 }
