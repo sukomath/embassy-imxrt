@@ -128,7 +128,7 @@ impl<'a> I2cMaster<'a, Blocking> {
         T::enable(clock);
         T::into_i2c();
 
-        let this = Self::new_inner::<T>(fc, scl, sda, speed, None, None)?;
+        let this = Self::new_inner::<T>(fc, scl, sda, speed, None)?;
 
         Ok(this)
     }
@@ -262,7 +262,7 @@ impl<'a> I2cMaster<'a, Async> {
         T::into_i2c();
 
         let ch = dma::Dma::reserve_channel(dma_ch);
-        let this = Self::new_inner::<T>(fc, scl, sda, speed, Some(ch), None)?;
+        let this = Self::new_inner::<T>(fc, scl, sda, speed, Some(ch))?;
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };

@@ -55,7 +55,7 @@ try {
         [Array]::Copy($byteArray, 0, $decData, 1, $byteArray.Length)
         $decData[0] = 0x65;
         Write-Host "Sending hex byte array to encrypt: '$decData'"
-        Write-Host $decData.Length
+        #Write-Host $decData.Length
         $serialPort.Write($decData, 0, $decData.Length)
 
         <#
@@ -87,7 +87,7 @@ try {
         Start-Sleep -Seconds 1
         $bytesRead = $serialPort.Read($buffer, 1, $bytesToRead-1)
         $bytesRead += 1
-        Write-Host "Read $bytesRead bytes:"
+        #Write-Host "Read $bytesRead bytes:"
     }
     
     if ($mode -eq 'e') {
@@ -100,7 +100,7 @@ try {
     else { 
         if ($mode -eq 'd') {
             $asciiString = [System.Text.Encoding]::ASCII.GetString($buffer)
-            Write-Host  "Received data new: $asciiString" -ForegroundColor Cyan
+            Write-Host  "Received data: $asciiString" -ForegroundColor Cyan
         }
     }
 
